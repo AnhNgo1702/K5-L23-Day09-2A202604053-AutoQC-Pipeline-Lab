@@ -21,9 +21,44 @@ Gợi ý
 - `iou_xywh(a, b)` có sẵn trong common.py.
 - Ngưỡng nằm trong `cfg["label_format"]` — đừng viết cứng số vào code.
 """
-from ..common import ERROR, WARN, Issue, iou_xywh, parse_yolo_line  # noqa: F401
+from ..common import ERROR, WARN, Issue, iou_xywh, parse_yolo_line
 
 
 def run(ds, cfg):
-    # TODO: duyệt từng file nhãn, từng dòng
-    raise NotImplementedError("check label_format chưa làm")
+    limits = cfg["label_format"]
+    issues = []
+    for path in ds.label_files():
+        stem = path.stem
+        size = ds.image_size(stem)
+        previous = []
+        for line, text in ds.read_label_lines(stem) or []:
+            def report(code, severity, message, extra=None):
+                issues.append(Issue("label_format", severity, code, stem, message,
+                                    line, extra or {}))
+
+            try:
+                box = parse_yolo_line(text)
+            except (ValueError, OverflowError) as exc:
+                report("BAD_FORMAT", ERROR, f"Sai định dạng YOLO: {exc}")
+                continue
+            cls, x, y, w, h = box
+            if not 0 <= cls < len(ds.classes):
+                report("BAD_CLASS_ID", ERROR, f"ID lớp {cls} ngoài danh sách lớp")
+                continue
+            if w <= 0 or h <= 0:
+                report("BOX_ZERO", ERROR, f"Kích thước box không dương: {w} × {h}")
+                continue
+            overflow = max(0, w / 2 - x, h / 2 - y,
+                           x + w / 2 - 1, y + h / 2 - 1)
+            if overflow > limits["overflow_tol"]:
+                report("BOX_OUT_OF_IMAGE", ERROR, f"Box tràn ảnh {overflow:.6g}",
+                       {"overflow": overflow})
+            if any(cls == old[0] and iou_xywh(box[1:], old[1:]) > limits["dup_box_iou"]
+                   for old in previous):
+                report("DUP_BOX", ERROR, "Box trùng với dòng trước cùng lớp")
+            previous.append(box)
+            if size and min(w * size[0], h * size[1]) < limits["min_box_px"]:
+                report("BOX_TINY", WARN, "Cạnh ngắn của box nhỏ hơn ngưỡng pixel")
+            if w * h > limits["max_box_frac"]:
+                report("BOX_HUGE", WARN, f"Box chiếm {w * h:.2%} diện tích ảnh")
+    return issues

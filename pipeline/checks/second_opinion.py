@@ -35,10 +35,65 @@ Gợi ý
 - `iou_xywh` có sẵn. Dòng nhãn hỏng không được làm script chết (dùng `ds.valid_boxes` và `parse_yolo_line` trong try).
 - Kết quả phụ thuộc mạnh vào ngưỡng: calibrate chúng ở Bước 3 thay vì đoán.
 """
-from ..common import WARN, Issue, iou_xywh, parse_yolo_line  # noqa: F401
-from ..model_cache import get_preds  # noqa: F401
+from ..common import WARN, Issue, iou_xywh, parse_yolo_line
+from ..model_cache import get_preds
 
 
 def run(ds, cfg, preds=None):
-    # TODO
-    raise NotImplementedError("check second_opinion chưa làm")
+    if preds is None:
+        preds = get_preds(ds, cfg, "checker")
+    limits = cfg["second_opinion"]
+    issues = []
+    for path in ds.image_files():
+        stem = path.stem
+        lines = ds.read_label_lines(stem)
+        if stem not in preds or lines is None:
+            continue
+        labels = ds.valid_boxes(stem)
+        predictions = preds[stem]
+        size = ds.image_size(stem)
+        for prediction in predictions:
+            cls, confidence, *box = prediction
+            if confidence < limits["conf"] or size is None:
+                continue
+            if box[2] * size[0] * box[3] * size[1] < limits["min_area_px"]:
+                continue
+            candidates = [(label[0], iou_xywh(box, label[1:])) for label in labels]
+            candidates = [(label_cls, overlap) for label_cls, overlap in candidates
+                          if overlap >= limits["iou_missing"]]
+            extra = {"conf": confidence}
+            if not candidates:
+                code = "POSSIBLE_MISSING"
+                message = "Model thấy vật chưa có box nhãn khớp"
+            else:
+                same_class = [overlap for label_cls, overlap in candidates if label_cls == cls]
+                if same_class:
+                    overlap = max(same_class)
+                    if overlap >= limits["iou_loose"]:
+                        continue
+                    code = "POSSIBLE_LOOSE_BOX"
+                    message = "Box cùng lớp có độ khớp thấp với model"
+                else:
+                    overlap = max(overlap for _, overlap in candidates)
+                    if overlap < limits["iou_match"]:
+                        continue
+                    code = "POSSIBLE_WRONG_CLASS"
+                    message = "Model và nhãn khác lớp trên cùng vị trí"
+                extra["iou"] = overlap
+            issues.append(Issue("second_opinion", WARN, code, stem, message, extra=extra))
+
+        fp_predictions = [prediction for prediction in predictions
+                          if prediction[1] >= limits["fp_conf"]]
+        for line, text in lines:
+            try:
+                label = parse_yolo_line(text)
+            except (ValueError, OverflowError):
+                continue
+            if not 0 <= label[0] < len(ds.classes):
+                continue
+            overlap = max((iou_xywh(label[1:], prediction[2:])
+                           for prediction in fp_predictions), default=0.0)
+            if overlap < limits["iou_missing"]:
+                issues.append(Issue("second_opinion", WARN, "POSSIBLE_FALSE_POS", stem,
+                                    "Box nhãn chưa khớp dự đoán model", line, {"iou": overlap}))
+    return issues

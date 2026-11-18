@@ -16,9 +16,28 @@ Tỉ lệ cảnh báo = (số ẢNH khác nhau có ≥ 1 cảnh báo) / (tổng 
 
 Trả về dict: decision, n_errors, n_warn_images, n_images, warn_ratio (làm tròn 4 chữ số), reasons (list[str], giải thích bằng tiếng Việt, có số liệu).
 """
-from ..common import ERROR, WARN  # noqa: F401
+from ..common import ERROR, WARN
 
 
 def decide(issues, image_stems, cfg, reviewed=frozenset()):
-    # TODO
-    raise NotImplementedError("gate chưa làm")
+    stems = set(image_stems)
+    issues = list(issues)
+    n_errors = sum(issue.severity == ERROR for issue in issues)
+    warnings = {issue.image for issue in issues
+                if issue.severity == WARN and issue.image in stems
+                and issue.image not in reviewed}
+    ratio = len(warnings) / len(stems) if stems else 0.0
+    threshold = cfg["gate"]["warn_ratio_hold"]
+    if n_errors:
+        decision = "Rework"
+        reasons = [f"Còn {n_errors} lỗi bắt buộc cần xử lý."]
+    elif ratio >= threshold:
+        decision = "Hold"
+        reasons = [f"Còn {len(warnings)}/{len(stems)} ảnh có cảnh báo chưa duyệt "
+                   f"({ratio:.2%}), đạt ngưỡng giữ {threshold:.2%}."]
+    else:
+        decision = "Release"
+        reasons = [f"Có {n_errors} lỗi bắt buộc, {len(warnings)}/{len(stems)} ảnh "
+                   f"còn cảnh báo ({ratio:.2%}), dưới ngưỡng giữ {threshold:.2%}."]
+    return dict(decision=decision, n_errors=n_errors, n_warn_images=len(warnings),
+                n_images=len(stems), warn_ratio=round(ratio, 4), reasons=reasons)

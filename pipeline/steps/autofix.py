@@ -27,13 +27,88 @@ Bẫy cần nghĩ tới (có test cho từng cái)
 
 Gợi ý: `yaml.safe_load / safe_dump`.
 """
-from collections import defaultdict  # noqa: F401
+from collections import defaultdict
 
-import yaml  # noqa: F401
+import yaml
 
-from ..common import ERROR, parse_yolo_line  # noqa: F401
+from ..common import ERROR, parse_yolo_line
 
 
 def fix(ds, issues, cfg):
-    # TODO
-    raise NotImplementedError("autofix chưa làm")
+    errors = [issue for issue in issues if issue.severity == ERROR]
+    changes = []
+
+    def record(image, line, action, before, after):
+        changes.append(dict(image=image, line=line, action=action, before=before, after=after))
+
+    remove_codes = {"LEAK_TEST", "CORRUPT_IMAGE", "BAD_SIZE"}
+    removed = {issue.image for issue in errors
+               if issue.code in remove_codes or issue.code.startswith("DUP_IMAGE_")}
+    for stem in sorted(removed):
+        paths = [path for path in ds.image_files() if path.stem == stem]
+        label_path = ds.label_path(stem)
+        if label_path.exists():
+            paths.append(label_path)
+        if paths:
+            before = ", ".join(str(path.relative_to(ds.root)) for path in paths)
+            for path in paths:
+                path.unlink()
+            record(stem, None, "remove_image", before, "")
+
+    if any(issue.code == "BAD_CLASS_NAME" for issue in errors):
+        data = yaml.safe_load(ds.yaml_path.read_text(encoding="utf-8")) if ds.yaml_path.exists() else {}
+        data = data or {}
+        if data.get("names") != cfg["classes"]:
+            before = str(data.get("names", {}))
+            data["names"] = list(cfg["classes"])
+            ds.yaml_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            record("data.yaml", None, "rename_classes", before, str(data["names"]))
+
+    by_image = defaultdict(lambda: defaultdict(set))
+    missing = set()
+    drop_codes = {"BAD_FORMAT", "BAD_CLASS_ID", "BOX_ZERO", "DUP_BOX"}
+    for issue in errors:
+        if issue.image in removed:
+            continue
+        if issue.code == "MISSING_LABEL_FILE":
+            if issue.image not in missing and not ds.label_path(issue.image).exists():
+                record(issue.image, None, "needs_label", "(không có file)", "chuyển người gán")
+                missing.add(issue.image)
+        elif issue.line is not None and issue.code in drop_codes | {"BOX_OUT_OF_IMAGE"}:
+            by_image[issue.image][issue.line].add(issue.code)
+
+    for stem, line_codes in by_image.items():
+        path = ds.label_path(stem)
+        if not path.exists():
+            continue
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        output = []
+        changed = False
+        for number, text in enumerate(lines, 1):
+            codes = line_codes.get(number, set())
+            after = text
+            action = None
+            if codes & drop_codes:
+                action, after = "drop_line", ""
+            elif "BOX_OUT_OF_IMAGE" in codes:
+                try:
+                    cls, x, y, w, h = parse_yolo_line(text)
+                except (ValueError, OverflowError):
+                    action, after = "drop_line", ""
+                else:
+                    left, top = max(0.0, x - w / 2), max(0.0, y - h / 2)
+                    right, bottom = min(1.0, x + w / 2), min(1.0, y + h / 2)
+                    if right <= left or bottom <= top:
+                        action, after = "drop_line", ""
+                    elif (left, top, right, bottom) != (x - w / 2, y - h / 2, x + w / 2, y + h / 2):
+                        values = ((left + right) / 2, (top + bottom) / 2, right - left, bottom - top)
+                        after = f"{cls} " + " ".join(format(value, ".12g") for value in values)
+                        action = "clip_box"
+            if action:
+                record(stem, number, action, text, after)
+                changed = True
+            if action != "drop_line":
+                output.append(after)
+        if changed:
+            path.write_text("\n".join(output) + ("\n" if output else ""), encoding="utf-8")
+    return changes
