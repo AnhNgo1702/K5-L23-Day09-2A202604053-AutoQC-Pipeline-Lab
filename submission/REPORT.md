@@ -1,36 +1,65 @@
-# Báo cáo Day 09 — <Họ và tên>, <MSHV>
-
-> Xoá mọi `TODO(học viên)` và dòng gợi ý. Mỗi ý trả lời bằng **số lấy từ `submission/reports/`**, kèm mẫu số. Cả báo cáo ~1–2 trang.
+# Báo cáo Day 09 — Ngô Trí Anh, 2A202604053
 
 ## 1. Kết luận trước
-TODO(học viên): pipeline kết luận **Release / Hold / Rework**? Bao nhiêu ảnh vào, bao nhiêu ảnh ra dataset? Lý do chính (1–3 câu).
+
+**Hold**. Pipeline nhận 205/224 ảnh, loại 19/224 ảnh ở cửa vào và xuất bản nháp 205 ảnh vào `submission/export/clean_v1/`. Sau sửa tự động và duyệt mô phỏng 80 ảnh, còn 0 lỗi bắt buộc, nhưng 38/205 ảnh (18,54%) còn cảnh báo chưa duyệt, vượt ngưỡng giữ 10%. Số liệu lấy từ `submission/reports/01_intake.csv` và `08_summary.json`.
 
 ## 2. Lỗi và phân việc
-Lấy từ `02_error_list_v1` (gom theo mã lỗi). Cột "ai sửa": **máy** (autofix) hay **người** (hàng đợi); chỉ ghi những mã có mặt trong lô của bạn.
 
-| Mã lỗi | Số ảnh/dòng | Ai sửa (máy/người) | Vì sao |
-|---|---:|---|---|
-| TODO(học viên) | | | |
+Bảng lấy từ `02_error_list_v1.csv`. Mẫu số của lỗi cửa vào là 224 ảnh, của QC là 205 ảnh đã nhận. Số dòng/cảnh báo là số issue, có thể cùng nằm trên một ảnh.
 
-TODO(học viên): vì sao `05_review_queue.csv` xếp ảnh đầu hàng như vậy? Với ngân sách 80 ảnh, người xem được bao nhiêu lỗi ngữ nghĩa?
+| Mã lỗi | Số issue / số ảnh | Ai xử lý và lý do |
+|---|---:|---|
+| CORRUPT_IMAGE | 2 / 2 | Máy loại ảnh không đọc được |
+| BAD_SIZE | 3 / 3 | Máy loại ảnh dưới kích thước quy định |
+| DUP_IMAGE_EXACT | 8 / 8 | Máy loại bản trùng byte |
+| DUP_IMAGE_NEAR | 2 / 2 | Máy loại bản gần trùng theo pHash |
+| LEAK_TEST | 4 / 4 | Máy loại ảnh trùng kho test/val |
+| BAD_CLASS_NAME | 2 / 1 file YAML | Máy chuẩn hoá tên lớp |
+| BAD_CLASS_ID | 6 dòng / 6 | Máy xoá dòng có ID ngoài danh sách |
+| BAD_FORMAT | 3 dòng / 3 | Máy xoá dòng sai định dạng |
+| BOX_ZERO | 4 dòng / 4 | Máy xoá box không có diện tích |
+| DUP_BOX | 7 dòng / 7 | Máy xoá box lặp |
+| BOX_OUT_OF_IMAGE | 8 dòng / 8 | Máy cắt box vào biên ảnh |
+| MISSING_LABEL_FILE | 6 / 6 | Người gán nhãn, máy ghi needs_label |
+| BOX_TINY | 6 dòng / 4 | Người xem vật nhỏ có cần giữ |
+| BOX_HUGE | 3 dòng / 3 | Người xem box lớn có hợp lý |
+| EMPTY_LABEL | 12 / 12 | Người xác nhận ảnh nền hoặc thiếu nhãn |
+| CLASS_RARE | 4 / mức dataset | Người đánh giá phân bố lớp |
+| POSSIBLE_FALSE_POS | 29 dòng / 27 | Người xác nhận box có vật thật |
+| POSSIBLE_LOOSE_BOX | 28 / 24 | Người kiểm độ khít của box |
+| POSSIBLE_MISSING | 53 / 52 | Người kiểm vật bị thiếu box |
+| POSSIBLE_WRONG_CLASS | 18 / 18 | Người kiểm ý nghĩa lớp |
+
+`03_fixes.csv` ghi 35 hành động gồm 20 drop_line, 8 clip_box, 1 rename_classes và 6 needs_label. Hàng đợi có 125 ảnh, ưu tiên bằng tổng trọng số lỗi, nhân thêm (1 + conf) cho cảnh báo có confidence và cộng điểm sửa box. `img_0020` đứng đầu với 11,524 điểm do vừa xoá dòng vừa có cảnh báo thiếu box/sai lớp. Tiếp theo là 6 ảnh thiếu file nhãn, mỗi ảnh 10 điểm. Người duyệt mô phỏng xem 80/125 ảnh, bao phủ 94/123 cảnh báo ngữ nghĩa ở 74/103 ảnh có cảnh báo ngữ nghĩa trong v2. Đây là số cảnh báo được xem, chưa phải số lỗi thật được xác nhận.
 
 ## 3. Calibration (2 ngưỡng)
-| Tham số | Khởi đầu | Đã chọn | Precision / Recall (trước → sau) | Lý do (đánh đổi) |
-|---|---|---|---|---|
-| `duplicates.phash_dist` | 2 | TODO(học viên) | | |
-| `second_opinion.conf` | 0.25 | TODO(học viên) | | |
 
-TODO(học viên): **một chỗ calibration có thể đánh lừa bạn**, kèm bằng chứng từ dữ liệu của bạn (vd. mở xem vài cặp ảnh bị cho là trùng; số ảnh bị loại ở bước 1 có hợp lý không?).
+Đã sweep 9 ngưỡng pHash và 7 ngưỡng confidence trên 39 ảnh. Chi tiết TP/FP/FN trong `submission/calibration/calibration.json` và `calibration_report.md`. P/R là precision/recall trên calib.
 
-## 4. Cửa chặn và điều pipeline KHÔNG bắt được
-TODO(học viên): (a) chứng minh gate chặn đúng: chạy `python -m pipeline.run --budget 0 --reports work/rep_nb --export-dir work/exp_nb` (không có người duyệt nên ảnh thiếu file nhãn còn nguyên), chỉ ra kết luận **Rework**, mã thoát 20 và việc **không xuất** dataset. (Đừng sửa tay `work/run/ds`: pipeline dựng lại thư mục này từ raw mỗi lần chạy.) (b) ≥ 2 điểm mù có bằng chứng (box lỏng nhẹ, nhầm lớp mà model lớn cũng nhầm, ảnh trùng biến đổi mạnh…).
+| Tham số | Khởi đầu → chọn | P/R trước → sau | Đánh đổi |
+|---|---|---|---|
+| duplicates.phash_dist | 2 → 4 | Gần trùng 1,00/0,50 → 1,00/0,667 (TP 3/6 → 4/6, FP 0). Trùng byte giữ 3/3, FP 0. | Giá trị nhỏ nhất bắt thêm một ca, 6–14 không cải thiện. Ưu tiên độ tin cậy vì ảnh bị cờ sẽ bị loại. |
+| second_opinion.conf | 0,25 → 0,6 | Sai lớp 0,556/0,833 → 0,625/0,833. Thiếu box 0,50/1,00 → 0,571/1,00. Box lỏng 0,286/0,40 → 0,20/0,20. | Giữ TP sai lớp 5/6 và thiếu box 8/8, giảm FP tương ứng 4 → 3 và 8 → 6. Chấp nhận TP box lỏng giảm 2/5 → 1/5. |
 
-## 5. Train: raw vs clean (tùy chọn, chấm riêng)
-Chưa train: ghi "chưa chạy" và lý do, rồi bỏ qua phần còn lại của mục này. Nếu đã train: dán bảng từ `submission/results/comparison.md` (model, epoch, seed, số ảnh train mỗi biến thể).
+FALSE_POS giữ TP 5/5, FP 11 vì dùng fp_conf cố định. Ngưỡng conf 0,7–0,8 giảm recall thiếu box. Sau calibration, ảnh còn cảnh báo giảm từ 60/205 (29,27%) xuống 38/205 (18,54%), kết luận vẫn Hold.
 
-TODO(học viên): chênh mAP50 (clean − raw) so với **độ lệch chuẩn giữa các seed**; kết luận **trung thực** (nằm trong nhiễu thì nói là chưa kết luận được); ≥ 2 giả thuyết giải thích (ảnh trùng/rò rỉ test trong `raw`, nhãn máy còn lại trong `clean`, test chỉ 100 ảnh…) và cách kiểm.
+Calib nhỏ có thể gây chọn sai ngưỡng. pHash 16 bắt 5/6 ca gần trùng với FP 0 trên calib, nhưng trên raw báo 7 gần trùng và 11 rò rỉ, so với 2 và 4 ở ngưỡng 4. Kiểm tra trực quan cặp img_0011/img_0008, khoảng cách 16, cho thấy cảnh tennis và trượt tuyết khác nhau. Hai cặp ở ngưỡng 4, img_0076/img_0042 và img_0143/img_0037, có cùng cảnh. Vì vậy chọn 4 dù bỏ sót 2/6 ca gần trùng trên calib.
+
+## 4. Cửa chặn và điểm mù
+
+Đã chạy `.venv/Scripts/python.exe -m pipeline.run --budget 0 --work work/run_nb --reports work/rep_nb --export-dir work/exp_nb`. Kết quả Rework, mã thoát 20, còn 6 lỗi thiếu file nhãn trên 205 ảnh, reviewed = 0, exported = null. Đã kiểm tra `work/exp_nb/clean_v1` không tồn tại. Bằng chứng được sinh trong `work/rep_nb/08_summary.json` và `07_error_list_v3.csv`.
+
+Hai điểm mù có bằng chứng. (1) pHash 4 bỏ sót biến đổi mạnh, cặp img_0186/img_0061 có cùng cảnh khi xem nhưng khoảng cách 10. Tăng ngưỡng lại có nguy cơ gộp sai như cặp tennis/trượt tuyết. (2) Checker ở conf 0,6 chỉ bắt 1/5 ca box lỏng và 5/6 ca sai lớp trên calib. Đạt cú pháp và qua model vẫn có thể còn lỗi ngữ nghĩa. Calib từ nhãn người, raw từ nhãn model nên recall calib không đại diện đầy đủ cho raw.
+
+## 5. Train raw vs clean
+
+**Chưa chạy**. Phiên làm bài này hoàn thành phần lõi, chưa thực hiện phần train tùy chọn trên Colab. Chưa có số liệu mAP hoặc kết luận clean tốt hơn raw.
 
 ## 6. Quyết định và ghi chú AI
-TODO(học viên): (a) quyết định cuối; nếu Hold/Rework cần làm gì để thành Release? (b) Dùng AI viết code? Ghi 3 dòng: prompt chính, cách bạn kiểm code AI, 1 lần AI sai. Không dùng: ghi "không dùng".
 
-*(Thưởng +2, tùy chọn)* CVAT: lọc `width < 20`, ảnh/số box khớp, đối chiếu `BOX_TINY` (xem docs/CVAT_FILTER.md), 1 câu về `can_review`.
+Giữ **Hold** cho bản nháp. Với 205 ảnh, cần còn tối đa 20 ảnh có cảnh báo chưa duyệt để tỉ lệ dưới 10%, tức cần xử lý thêm ít nhất 18/38 ảnh hiện còn cảnh báo mà không phát sinh lỗi mới. Ngân sách 80 ảnh của lab đã dùng hết, nên ghi nhận nhu cầu duyệt bổ sung cho vòng xử lý sau và giữ các quy tắc dự án khi đánh giá lần chạy này.
+
+- Prompt chính yêu cầu AI đọc GUIDE.md, docstring và test để viết 4 module theo đầu vào YOLO, quy tắc, đầu ra Issue/log và phạm vi thao tác trên dataset làm việc.
+- AI chạy đủ 79 test, thử thêm dòng có hai lỗi, dòng trống giữ số dòng và nhiều dự đoán trên một ảnh. Đã xem các cặp ảnh trùng, chạy pipeline thực tế và kiểm tra gate với ngân sách 0. Các check đọc dữ liệu, autofix ghi/xoá trong dataset được truyền vào, pipeline dùng bản sao trong work.
+- Lần đầu AI ghi code qua PowerShell làm mất dấu tiếng Việt trong thông báo. AI sửa cách ghi UTF-8 và kiểm tra lại nội dung.
