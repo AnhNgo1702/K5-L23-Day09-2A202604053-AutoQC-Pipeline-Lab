@@ -54,7 +54,18 @@ Hai điểm mù có bằng chứng. (1) pHash 4 bỏ sót biến đổi mạnh, 
 
 ## 5. Train raw vs clean
 
-**Chưa chạy**. Phiên làm bài này hoàn thành phần lõi, chưa thực hiện phần train tùy chọn trên Colab. Chưa có số liệu mAP hoặc kết luận clean tốt hơn raw.
+Đã train trên Colab với yolo26n.pt, 20 epoch, batch 16, imgsz 640, hai seed 0 và 1 cho mỗi biến thể, cùng tập val và test. Số ảnh trong bảng là số ảnh của bộ train được dựng, raw có thể bị Ultralytics bỏ qua ảnh/nhãn hỏng khi nạp.
+
+| biến thể | #ảnh train | số seed | map50 (TB ± độ lệch) | map50_95 (TB ± độ lệch) | precision (TB ± độ lệch) | recall (TB ± độ lệch) |
+|---|---|---|---|---|---|---|
+| raw | 224 | 2 | 0.726 ± 0.000 | 0.512 ± 0.004 | 0.764 ± 0.061 | 0.649 ± 0.028 |
+| clean | 205 | 2 | 0.700 ± 0.030 | 0.486 ± 0.013 | 0.715 ± 0.073 | 0.615 ± 0.017 |
+
+Chênh mAP50 (clean − raw) = **-0.025**.
+
+Clean có mAP50 trung bình thấp hơn raw khoảng 0,025, trong khi độ lệch chuẩn của clean là 0,030. Giá trị 0,000 của raw là số đã làm tròn. Với chỉ hai seed, chưa đủ cơ sở kết luận chênh lệch ổn định hoặc clean tốt hơn raw.
+
+Hai giả thuyết cần kiểm tra. (1) Raw có 4/224 ảnh bị cờ LEAK_TEST do trùng kho test/val, có thể làm điểm đánh giá lạc quan. Có thể đo lại với bản raw đã loại riêng các ảnh rò rỉ, giữ các điều kiện train còn lại giống nhau. (2) Clean chỉ có 205 ảnh so với 224 ảnh raw và vẫn còn 38/205 ảnh có cảnh báo chưa duyệt. Giảm dữ liệu và lỗi nhãn còn lại có thể làm giảm chất lượng. Có thể so sánh thêm bản cùng tập ảnh với nhãn được duyệt đầy đủ, đồng thời tăng số seed để đo độ nhiễu. Các thí nghiệm này chưa được thực hiện.
 
 ## 6. Quyết định và ghi chú AI
 
